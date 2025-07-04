@@ -325,3 +325,119 @@
 (define-read-only (get-milestone-counter)
   (var-get milestone-counter)
 )
+
+(define-map freelancer-reputation
+  principal
+  {
+    total-projects: uint,
+    completed-projects: uint,
+    cancelled-projects: uint,
+    total-earnings: uint,
+    rating-sum: uint,
+    rating-count: uint,
+    last-updated: uint
+  }
+)
+
+(define-map project-ratings
+  uint
+  {
+    rating: uint,
+    review: (string-ascii 200),
+    rated-by: principal,
+    created-at: uint
+  }
+)
+
+(define-public (rate-freelancer (project-id uint) (rating uint) (review (string-ascii 200)))
+  (let
+    (
+      (project (unwrap! (map-get? projects project-id) ERR_PROJECT_NOT_FOUND))
+      (current-rep (default-to 
+        { total-projects: u0, completed-projects: u0, cancelled-projects: u0, 
+          total-earnings: u0, rating-sum: u0, rating-count: u0, last-updated: u0 } 
+        (map-get? freelancer-reputation (get freelancer project))
+      ))
+    )
+    (asserts! (is-eq tx-sender (get client project)) ERR_NOT_AUTHORIZED)
+    (asserts! (is-eq (get status project) STATUS_COMPLETED) ERR_INVALID_STATUS)
+    (asserts! (and (>= rating u1) (<= rating u5)) ERR_INVALID_AMOUNT)
+    (asserts! (is-none (map-get? project-ratings project-id)) ERR_ALREADY_EXISTS)
+    
+    (map-set project-ratings project-id
+      {
+        rating: rating,
+        review: review,
+        rated-by: tx-sender,
+        created-at: stacks-block-height
+      }
+    )
+    
+    (map-set freelancer-reputation (get freelancer project)
+      (merge current-rep
+        {
+          rating-sum: (+ (get rating-sum current-rep) rating),
+          rating-count: (+ (get rating-count current-rep) u1),
+          last-updated: stacks-block-height
+        }
+      )
+    )
+    (ok true)
+  )
+)
+
+(define-private (update-freelancer-stats (freelancer principal) (project-amount uint) (completed bool))
+  (let
+    (
+      (current-rep (default-to 
+        { total-projects: u0, completed-projects: u0, cancelled-projects: u0, 
+          total-earnings: u0, rating-sum: u0, rating-count: u0, last-updated: u0 } 
+        (map-get? freelancer-reputation freelancer)
+      ))
+    )
+    (map-set freelancer-reputation freelancer
+      (merge current-rep
+        {
+          total-projects: (+ (get total-projects current-rep) u1),
+          completed-projects: (if completed 
+            (+ (get completed-projects current-rep) u1) 
+            (get completed-projects current-rep)
+          ),
+          cancelled-projects: (if completed 
+            (get cancelled-projects current-rep) 
+            (+ (get cancelled-projects current-rep) u1)
+          ),
+          total-earnings: (if completed 
+            (+ (get total-earnings current-rep) project-amount) 
+            (get total-earnings current-rep)
+          ),
+          last-updated: stacks-block-height
+        }
+      )
+    )
+    (ok true)
+  )
+)
+
+(define-read-only (get-freelancer-reputation (freelancer principal))
+  (map-get? freelancer-reputation freelancer)
+)
+
+(define-read-only (get-project-rating (project-id uint))
+  (map-get? project-ratings project-id)
+)
+
+(define-read-only (calculate-freelancer-rating (freelancer principal))
+  (let
+    (
+      (rep (map-get? freelancer-reputation freelancer))
+    )
+    (match rep
+      some-rep (if (> (get rating-count some-rep) u0)
+        (some (/ (get rating-sum some-rep) (get rating-count some-rep)))
+        none
+      )
+      none
+    )
+  )
+)
