@@ -24,6 +24,10 @@ epoch = 3.1
 path = 'contracts/escrow-insurance.clar'
 clarity_version = 3
 epoch = 3.1
+[contracts.skill-complexity-tracker]
+path = 'contracts/skill-complexity-tracker.clar'
+clarity_version = 3
+epoch = 3.1
 [repl.analysis]
 passes = ['check_checker']
 
